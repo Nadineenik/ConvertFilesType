@@ -1,150 +1,160 @@
 import os
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from markitdown import MarkItDown
 
-class AdvancedConverterApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Markdown Pro Converter")
-        self.root.geometry("800x600")
+# Настройки темы
+ctk.set_appearance_mode("System")
+ctk.set_default_color_theme("blue")
+
+# Создаем промежуточный класс для поддержки DnD в CustomTkinter
+class TkinterDnDCtk(ctk.CTk, TkinterDnD.DnDWrapper):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.TkdndVersion = TkinterDnD._require(self)
+
+class ModernConverter(TkinterDnDCtk):
+    def __init__(self):
+        super().__init__()
+
+        self.title("Markdown Pro Converter")
+        self.geometry("1000x650")
         
-        # Инициализируем конвертер один раз
         self.md_converter = MarkItDown()
-        self.current_content = ""
-        self.source_filename = ""
         self.output_directory = ""
+        self.source_filename = ""
 
-        self.setup_ui()
+        # Настройка сетки
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-    def setup_ui(self):
-        # --- Верхняя панель ---
-        top_frame = ttk.Frame(self.root, padding=10)
-        top_frame.pack(fill="x")
+        self.setup_sidebar()
+        self.setup_main_area()
 
-        self.drop_zone = tk.Label(
-            top_frame, 
-            text="Перетащите файл сюда (PDF, DOCX) или нажмите для выбора",
-            bg="#ebf5ff", fg="#2c3e50",
-            font=("Arial", 11, "italic"),
-            height=4, relief="groove", cursor="hand2"
+    def setup_sidebar(self):
+        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        
+        logo = ctk.CTkLabel(self.sidebar, text="MD Converter", font=ctk.CTkFont(size=20, weight="bold"))
+        logo.pack(pady=20, padx=20)
+
+        self.btn_open = ctk.CTkButton(self.sidebar, text="📁 Выбрать файл", command=self.open_file_dialog)
+        self.btn_open.pack(pady=10, padx=20)
+
+        self.btn_dest = ctk.CTkButton(self.sidebar, text="⚙️ Папка сохранения", 
+                                       fg_color="transparent", border_width=1,
+                                       command=self.choose_directory)
+        self.btn_dest.pack(pady=10, padx=20)
+
+        self.btn_copy = ctk.CTkButton(self.sidebar, text="📋 Копировать текст", 
+                                       command=self.copy_to_clipboard, state="disabled")
+        self.btn_copy.pack(pady=10, padx=20)
+
+        self.btn_save = ctk.CTkButton(self.sidebar, text="💾 Сохранить .md", 
+                                       fg_color="#28a745", hover_color="#218838",
+                                       command=self.save_file, state="disabled")
+        self.btn_save.pack(pady=10, padx=20)
+
+        self.appearance_mode_optionemenu = ctk.CTkOptionMenu(self.sidebar, values=["Light", "Dark", "System"],
+                                                               command=self.change_appearance_mode)
+        self.appearance_mode_optionemenu.pack(side="bottom", padx=20, pady=20)
+        self.appearance_mode_optionemenu.set("System")
+
+    def setup_main_area(self):
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        
+        # Зона Drag-and-Drop
+        # Используем обычный tk.Label внутри ctk, так как DnD лучше работает с нативными виджетами
+        self.drop_frame = tk.Label(
+            self.main_container, 
+            text="\n\n⬇️\nПеретащите сюда файл PDF или Word\n\n",
+            bg="#3b3b3b" if ctk.get_appearance_mode() == "Dark" else "#e1e1e1",
+            fg="gray80" if ctk.get_appearance_mode() == "Dark" else "gray20",
+            relief="groove",
+            borderwidth=2,
+            font=("Arial", 12, "italic")
         )
-        self.drop_zone.pack(fill="x", pady=5)
+        self.drop_frame.pack(fill="x", pady=(0, 20))
         
-        self.drop_zone.drop_target_register(DND_FILES)
-        self.drop_zone.dnd_bind('<<Drop>>', self.handle_drop)
-        self.drop_zone.bind("<Button-1>", lambda e: self.open_file_dialog())
+        # Регистрация DnD
+        self.drop_frame.drop_target_register(DND_FILES)
+        self.drop_frame.dnd_bind('<<Drop>>', self.handle_drop)
 
-        # --- Предпросмотр ---
-        ttk.Label(self.root, text="Предпросмотр (можно редактировать перед сохранением):", 
-                  font=("Arial", 9, "bold")).pack(anchor="w", padx=10)
+        self.text_preview = ctk.CTkTextbox(self.main_container, font=("Consolas", 13))
+        self.text_preview.pack(expand=True, fill="both")
 
-        preview_frame = ttk.Frame(self.root)
-        preview_frame.pack(expand=True, fill="both", padx=10, pady=5)
-
-        self.text_preview = tk.Text(preview_frame, wrap="word", font=("Consolas", 10))
-        scrollbar = ttk.Scrollbar(preview_frame, orient="vertical", command=self.text_preview.yview)
-        self.text_preview.configure(yscrollcommand=scrollbar.set)
-        
-        scrollbar.pack(side="right", fill="y")
-        self.text_preview.pack(side="left", expand=True, fill="both")
-
-        # --- Низ ---
-        bottom_frame = ttk.Frame(self.root, padding=10)
-        bottom_frame.pack(fill="x")
-
-        self.btn_dir = ttk.Button(bottom_frame, text="📁 Папка сохранения", command=self.choose_directory)
-        self.btn_dir.pack(side="left", padx=5)
-
-        self.dir_label = ttk.Label(bottom_frame, text="Сохранить рядом с оригиналом", foreground="gray")
-        self.dir_label.pack(side="left", padx=5)
-
-        self.save_btn = ttk.Button(bottom_frame, text="💾 Сохранить .md", command=self.save_file, state="disabled")
-        self.save_btn.pack(side="right", padx=5)
-
-        self.status_var = tk.StringVar(value="Готов к работе")
-        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief="sunken", anchor="w")
-        status_bar.pack(side="bottom", fill="x")
+        self.status_label = ctk.CTkLabel(self.main_container, text="Готов к работе", font=ctk.CTkFont(size=11))
+        self.status_label.pack(anchor="w", pady=(10, 0))
 
     def handle_drop(self, event):
         file_path = event.data.strip('{}')
         self.process_file(file_path)
 
     def open_file_dialog(self):
-        file_path = filedialog.askopenfilename(
-            filetypes=[("Документы", "*.pdf *.docx *.pptx *.xlsx"), ("Все файлы", "*.*")]
-        )
-        if file_path:
-            self.process_file(file_path)
+        file_path = filedialog.askopenfilename(filetypes=[("Documents", "*.pdf *.docx *.xlsx *.pptx")])
+        if file_path: self.process_file(file_path)
 
     def choose_directory(self):
-        dir_path = filedialog.askdirectory()
-        if dir_path:
-            self.output_directory = dir_path
-            self.dir_label.config(text=f"Папка: {os.path.basename(dir_path)}", foreground="black")
+        path = filedialog.askdirectory()
+        if path: 
+            self.output_directory = path
+            messagebox.showinfo("Папка выбрана", f"Файлы будут сохраняться в:\n{path}")
 
     def process_file(self, file_path):
         if not os.path.isfile(file_path): return
+        name = os.path.basename(file_path)
+        self.status_label.configure(text=f"⏳ Обработка: {name}...", text_color="#3498db")
+        self.text_preview.delete("1.0", tk.END)
         
-        self.status_var.set("🔄 Читаю файл... (для PDF это может занять до 10-20 секунд)")
-        self.text_preview.delete(1.0, tk.END)
-        self.save_btn.config(state="disabled")
-        self.drop_zone.config(bg="#fff9db") # Желтый фон во время работы
-
         thread = threading.Thread(target=self.convert_task, args=(file_path,), daemon=True)
         thread.start()
 
     def convert_task(self, file_path):
         try:
-            # Сама конвертация
             result = self.md_converter.convert(file_path)
-            content = result.text_content
-            filename = os.path.splitext(os.path.basename(file_path))[0]
-            
-            # Передаем данные в основной поток через функцию обратного вызова
-            self.root.after(0, self.on_conversion_complete, content, filename)
-            
+            name = os.path.splitext(os.path.basename(file_path))[0]
+            self.after(0, self.on_complete, result.text_content, name)
         except Exception as e:
-            # Исправленная передача ошибки
-            error_msg = str(e)
-            self.root.after(0, lambda msg=error_msg: self.on_conversion_error(msg))
+            err = str(e)
+            self.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось прочитать файл:\n{err}"))
 
-    def on_conversion_complete(self, content, filename):
-        self.current_content = content
-        self.source_filename = filename
-        self.text_preview.insert(tk.END, content)
-        self.save_btn.config(state="normal")
-        self.status_var.set("✅ Готово! Можете отредактировать текст и сохранить.")
-        self.drop_zone.config(bg="#ebf5ff")
+    def on_complete(self, content, name):
+        self.text_preview.insert("1.0", content)
+        self.source_filename = name
+        self.btn_save.configure(state="normal")
+        self.btn_copy.configure(state="normal")
+        self.status_label.configure(text="✅ Конвертация завершена", text_color="#28a745")
 
-    def on_conversion_error(self, msg):
-        self.status_var.set("❌ Ошибка")
-        self.drop_zone.config(bg="#fee2e2")
-        messagebox.showerror("Ошибка конвертации", f"Не удалось обработать файл:\n{msg}")
+    def copy_to_clipboard(self):
+        content = self.text_preview.get("1.0", tk.END)
+        self.clipboard_clear()
+        self.clipboard_append(content)
+        messagebox.showinfo("Инфо", "Текст скопирован в буфер обмена!")
 
     def save_file(self):
-        content_to_save = self.text_preview.get(1.0, tk.END)
-        
+        content = self.text_preview.get("1.0", tk.END)
         if self.output_directory:
             final_path = os.path.join(self.output_directory, f"{self.source_filename}.md")
         else:
-            final_path = filedialog.asksaveasfilename(
-                defaultextension=".md",
-                initialfile=f"{self.source_filename}.md",
-                filetypes=[("Markdown", "*.md")]
-            )
+            final_path = filedialog.asksaveasfilename(defaultextension=".md", initialfile=f"{self.source_filename}.md")
         
         if final_path:
-            try:
-                with open(final_path, "w", encoding="utf-8") as f:
-                    f.write(content_to_save)
-                messagebox.showinfo("Успех", "Файл сохранен!")
-            except Exception as e:
-                messagebox.showerror("Ошибка", str(e))
+            with open(final_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            messagebox.showinfo("Успех", "Файл сохранен!")
+
+    def change_appearance_mode(self, new_mode):
+        ctk.set_appearance_mode(new_mode)
+        # Обновляем цвет зоны сброса при смене темы
+        if new_mode == "Dark":
+            self.drop_frame.config(bg="#3b3b3b", fg="gray80")
+        else:
+            self.drop_frame.config(bg="#e1e1e1", fg="gray20")
 
 if __name__ == "__main__":
-    root = TkinterDnD.Tk()
-    app = AdvancedConverterApp(root)
-    root.mainloop()
+    app = ModernConverter()
+    app.mainloop()
