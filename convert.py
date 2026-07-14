@@ -24,14 +24,17 @@ class UniversalConverter(TkinterDnDCtk):
         self.geometry("1100x750")
         
         self.md_converter = MarkItDown()
-        self.source_filename = ""
-        self.output_directory = "" # Сюда сохраняем путь
+        self.source_filename = "note"
+        self.output_directory = ""
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
         self.setup_sidebar()
         self.setup_main_area()
+        
+        # Привязываем горячие клавиши правильно
+        self.bind_shortcuts()
 
     def setup_sidebar(self):
         self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
@@ -40,11 +43,9 @@ class UniversalConverter(TkinterDnDCtk):
         logo = ctk.CTkLabel(self.sidebar, text="CONVERTER", font=ctk.CTkFont(size=20, weight="bold"))
         logo.pack(pady=20, padx=20)
 
-        # 1. Выбор файла
         self.btn_open = ctk.CTkButton(self.sidebar, text="📁 Выбрать файл", command=self.open_file_dialog)
         self.btn_open.pack(pady=10, padx=20)
 
-        # 2. Выбор папки (МЫ ЕЁ ВЕРНУЛИ)
         self.btn_dest = ctk.CTkButton(self.sidebar, text="⚙️ Папка сохранения", 
                                        fg_color="transparent", border_width=1,
                                        command=self.choose_directory)
@@ -53,20 +54,18 @@ class UniversalConverter(TkinterDnDCtk):
         self.dir_info_label = ctk.CTkLabel(self.sidebar, text="Папка: не выбрана", font=ctk.CTkFont(size=10), text_color="gray")
         self.dir_info_label.pack(pady=(0, 10))
 
-        # 3. Выбор формата
         ctk.CTkLabel(self.sidebar, text="Экспортировать в:", font=ctk.CTkFont(size=12)).pack(pady=(20, 0))
         self.export_type = ctk.CTkOptionMenu(self.sidebar, values=["Markdown (.md)", "Word (.docx)", "PDF (.pdf)", "Text (.txt)"])
         self.export_type.pack(pady=5, padx=20)
 
-        # 4. Кнопка запуска
         self.btn_save = ctk.CTkButton(self.sidebar, text="🚀 Сохранить результат", 
                                        fg_color="#28a745", hover_color="#218838",
-                                       command=self.save_file, state="disabled")
+                                       command=self.save_file)
         self.btn_save.pack(pady=20, padx=20)
 
-        self.btn_copy = ctk.CTkButton(self.sidebar, text="📋 Копировать текст", 
+        self.btn_copy = ctk.CTkButton(self.sidebar, text="📋 Копировать всё", 
                                        fg_color="transparent", border_width=1,
-                                       command=self.copy_to_clipboard, state="disabled")
+                                       command=self.copy_to_clipboard)
         self.btn_copy.pack(pady=5, padx=20)
 
         self.appearance_mode_menu = ctk.CTkOptionMenu(self.sidebar, values=["Light", "Dark", "System"], command=ctk.set_appearance_mode)
@@ -79,7 +78,7 @@ class UniversalConverter(TkinterDnDCtk):
         
         self.drop_frame = tk.Label(
             self.main_container, 
-            text="\n\n⬇️\nПеретащите любой файл сюда\n(PDF, Word, Markdown, TXT)\n\n",
+            text="\n\n⬇️\nПеретащите файл или пишите текст\nCtrl+A, C, V, Z работает на любой раскладке\n\n",
             bg="#3b3b3b" if ctk.get_appearance_mode() == "Dark" else "#e1e1e1",
             fg="gray80" if ctk.get_appearance_mode() == "Dark" else "gray20",
             relief="groove", borderwidth=2, font=("Arial", 12, "italic")
@@ -89,18 +88,78 @@ class UniversalConverter(TkinterDnDCtk):
         self.drop_frame.drop_target_register(DND_FILES)
         self.drop_frame.dnd_bind('<<Drop>>', self.handle_drop)
 
-        self.text_preview = ctk.CTkTextbox(self.main_container, font=("Consolas", 13))
+        self.text_preview = ctk.CTkTextbox(self.main_container, font=("Consolas", 14), undo=True)
         self.text_preview.pack(expand=True, fill="both")
 
-        self.status_label = ctk.CTkLabel(self.main_container, text="Готов к работе", font=ctk.CTkFont(size=11))
+        self.status_label = ctk.CTkLabel(self.main_container, text="Режим: Редактор/Конвертер", font=ctk.CTkFont(size=11))
         self.status_label.pack(anchor="w", pady=(10, 0))
+
+    # --- ИСПРАВЛЕННЫЕ ГОРЯЧИЕ КЛАВИШИ ---
+    # --- ИСПРАВЛЕННЫЕ ГОРЯЧИЕ КЛАВИШИ (РУЧНОЕ УПРАВЛЕНИЕ БУФЕРОМ) ---
+    def bind_shortcuts(self):
+        # Привязываем ко всему окну, чтобы ловилось всегда
+        self.text_preview.bind("<Control-KeyPress>", self.handle_control_hotkeys)
+
+    def handle_control_hotkeys(self, event):
+        code = event.keycode
+        # Печатаем код для отладки, если вдруг не работает (можно убрать)
+        # print(f"Keycode: {code}") 
+
+        try:
+            if code == 65: # Ctrl + A
+                self.select_all()
+                return "break"
+            
+            elif code == 67: # Ctrl + C
+                # Копируем выделенное
+                selected_text = self.text_preview.get("sel.first", "sel.last")
+                self.clipboard_clear()
+                self.clipboard_append(selected_text)
+                return "break"
+            
+            elif code == 86: # Ctrl + V
+                # Вставляем из буфера
+                clipboard_text = self.clipboard_get()
+                # Если есть выделение, удаляем его перед вставкой
+                try:
+                    self.text_preview.delete("sel.first", "sel.last")
+                except:
+                    pass
+                self.text_preview.insert(tk.INSERT, clipboard_text)
+                return "break"
+            
+            elif code == 88: # Ctrl + X
+                # Вырезаем
+                selected_text = self.text_preview.get("sel.first", "sel.last")
+                self.clipboard_clear()
+                self.clipboard_append(selected_text)
+                self.text_preview.delete("sel.first", "sel.last")
+                return "break"
+            
+            elif code == 90: # Ctrl + Z
+                try:
+                    self.text_preview.edit_undo()
+                except:
+                    pass
+                return "break"
+        except tk.TclError:
+            # Ошибка возникает, если, например, пытаемся скопировать, когда ничего не выделено
+            pass
+        return None
+    
+    def select_all(self, event=None):
+        self.text_preview.tag_add("sel", "1.0", "end")
+        self.text_preview.mark_set("insert", "1.0")
+        self.text_preview.see("insert")
+        return "break"
+
+    # --- ОСТАЛЬНАЯ ЛОГИКА ---
 
     def choose_directory(self):
         path = filedialog.askdirectory()
         if path:
             self.output_directory = path
-            folder_name = os.path.basename(path)
-            self.dir_info_label.configure(text=f"Папка: .../{folder_name}", text_color="#3498db")
+            self.dir_info_label.configure(text=f"Папка: .../{os.path.basename(path)}", text_color="#3498db")
 
     def handle_drop(self, event):
         file_path = event.data.strip('{}')
@@ -113,7 +172,6 @@ class UniversalConverter(TkinterDnDCtk):
     def process_file(self, file_path):
         if not os.path.isfile(file_path): return
         ext = os.path.splitext(file_path)[1].lower()
-        
         self.status_label.configure(text=f"⏳ Чтение: {os.path.basename(file_path)}...", text_color="#3498db")
         self.text_preview.delete("1.0", tk.END)
         
@@ -127,46 +185,33 @@ class UniversalConverter(TkinterDnDCtk):
 
     def convert_to_preview_task(self, file_path, ext):
         try:
-            if ext == '.txt' or ext == '.md':
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            if ext in ['.txt', '.md']:
+                with open(file_path, 'r', encoding='utf-8') as f: content = f.read()
             else:
                 result = self.md_converter.convert(file_path)
                 content = result.text_content
-            
-            name = os.path.splitext(os.path.basename(file_path))[0]
-            self.after(0, self.on_preview_ready, content, name)
+            self.after(0, self.on_preview_ready, content, os.path.splitext(os.path.basename(file_path))[0])
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Ошибка", f"Ошибка чтения: {e}"))
+            self.after(0, lambda: messagebox.showerror("Ошибка", f"Ошибка: {e}"))
 
     def on_preview_ready(self, content, name):
         self.text_preview.insert("1.0", content)
         self.source_filename = name
-        self.btn_save.configure(state="normal")
-        self.btn_copy.configure(state="normal")
-        self.status_label.configure(text="✅ Файл загружен. Настройте формат и сохраните.", text_color="#28a745")
+        self.status_label.configure(text="✅ Готово к работе.", text_color="#28a745")
 
     def save_file(self):
+        content = self.text_preview.get("1.0", tk.END).strip()
+        if not content:
+            messagebox.showwarning("Внимание", "Текстовое поле пустое!")
+            return
+
         target_format = self.export_type.get()
-        content = self.text_preview.get("1.0", tk.END)
-        
-        ext_map = {
-            "Markdown (.md)": ".md",
-            "Word (.docx)": ".docx",
-            "PDF (.pdf)": ".pdf",
-            "Text (.txt)": ".txt"
-        }
+        ext_map = {"Markdown (.md)": ".md", "Word (.docx)": ".docx", "PDF (.pdf)": ".pdf", "Text (.txt)": ".txt"}
         ext = ext_map[target_format]
         
-        # Если папка уже выбрана, формируем путь сами
         if self.output_directory:
             final_path = os.path.join(self.output_directory, f"{self.source_filename}{ext}")
-            # Если такой файл уже есть, лучше спросить подтверждение или добавить (1)
-            if os.path.exists(final_path):
-                if not messagebox.askyesno("Файл существует", "Файл с таким именем уже есть. Перезаписать?"):
-                    final_path = filedialog.asksaveasfilename(defaultextension=ext, initialfile=f"{self.source_filename}{ext}", initialdir=self.output_directory)
         else:
-            # Если папка не выбрана - вызываем диалог
             final_path = filedialog.asksaveasfilename(defaultextension=ext, initialfile=f"{self.source_filename}{ext}")
         
         if not final_path: return
@@ -174,25 +219,22 @@ class UniversalConverter(TkinterDnDCtk):
         try:
             if target_format in ["Markdown (.md)", "Text (.txt)"]:
                 with open(final_path, "w", encoding="utf-8") as f: f.write(content)
-            
             elif target_format == "Word (.docx)":
                 pypandoc.convert_text(content, 'docx', format='md', outputfile=final_path)
-            
             elif target_format == "PDF (.pdf)":
                 pdf = FPDF()
                 pdf.add_page()
                 pdf.set_font("Arial", size=12)
                 pdf.multi_cell(0, 10, content.encode('latin-1', 'replace').decode('latin-1'))
                 pdf.output(final_path)
-
             messagebox.showinfo("Успех", f"Сохранено в:\n{final_path}")
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сохранить: {e}")
+            messagebox.showerror("Ошибка", f"Ошибка сохранения: {e}")
 
     def copy_to_clipboard(self):
         self.clipboard_clear()
         self.clipboard_append(self.text_preview.get("1.0", tk.END))
-        messagebox.showinfo("Инфо", "Текст скопирован в буфер обмена!")
+        messagebox.showinfo("Инфо", "Текст скопирован!")
 
 if __name__ == "__main__":
     app = UniversalConverter()
